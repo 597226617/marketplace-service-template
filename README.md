@@ -4,7 +4,7 @@
 
 Fork this repo → edit one file → deploy → start earning.
 
-You provide the idea. We provide 155+ mobile devices across 6 countries, x402 payment rails, and the marketplace to find customers.
+You provide the idea. We provide 148 mobile devices across 6 countries (DE, PL, US, FR, ES, GB), x402 payment rails (Solana + Base), and the marketplace to find customers.
 
 > **Reference implementation included:** This repo ships with a working **Google Maps Lead Generator** (`src/service.ts` + `src/scrapers/`) built by [@aliraza556](https://github.com/aliraza556). Use it as-is or replace with your own service logic.
 
@@ -130,47 +130,32 @@ See [SECURITY.md](SECURITY.md) for production hardening.
 
 ## Live Services
 
-These services are live on the marketplace right now:
+**9 services / 23 endpoints** verified live in production (last audit 2026-04-28).
+Browse the full catalog: [agents.proxies.sx/marketplace](https://agents.proxies.sx/marketplace/) or [skill.md](https://agents.proxies.sx/marketplace/skill.md).
 
-| Service | Price | Builder | Status |
-|---------|-------|---------|--------|
-| [Mobile Proxy](https://agents.proxies.sx/marketplace/proxy/) | $4/GB shared, $8/GB private | Proxies.sx | Live |
-| [Google Maps Lead Generator](https://agents.proxies.sx/marketplace/google-maps-lead-generator/) | $0.005/record | [@aliraza556](https://github.com/aliraza556) | Live |
-| [Mobile SERP Tracker](https://agents.proxies.sx/marketplace/serp-tracker/) | $0.003/query | [@aliraza556](https://github.com/aliraza556) | Live |
-| [Job Market Intelligence](https://bounty16-job-market-intelligence.onrender.com) | $0.005/query | [@Lutra23](https://github.com/Lutra23) | Live |
-| [Prediction Market Aggregator](https://marketplace-service-template.onrender.com) | $0.05/query | [@rakesh0x](https://github.com/rakesh0x) | Live |
+| Service | Endpoints | Price | Builder |
+|---------|-----------|-------|---------|
+| [Mobile Proxy](https://agents.proxies.sx/marketplace/proxy/) | `/v1/x402/proxy` | $4/GB shared, $8/GB private | Proxies.sx |
+| [Google Maps Lead Generator](https://agents.proxies.sx/marketplace/google-maps-lead-generator/) | `/maps/run`, `/maps/details` | $0.005/record | [@aliraza556](https://github.com/aliraza556) |
+| [Mobile SERP Tracker](https://agents.proxies.sx/marketplace/serp-tracker/) | `/serp/run` | $0.003/query | [@aliraza556](https://github.com/aliraza556) |
+| Reviews & Business Data | `/reviews/*`, `/business/:id` | $0.005–$0.02 | [@aliraza556](https://github.com/aliraza556) |
+| Job Market Intelligence | `/jobs` | $0.005/query | [@Lutra23](https://github.com/Lutra23) |
+| Reddit Intelligence | `/reddit/*` (4 endpoints) | $0.005–$0.01 | [@TheAuroraAI](https://github.com/TheAuroraAI) |
+| Instagram Intelligence + AI Vision | `/instagram/*` (5 endpoints) | $0.01–$0.15 | [@TheAuroraAI](https://github.com/TheAuroraAI) |
+| LinkedIn Enrichment | `/linkedin/*` (4 endpoints) | $0.01/query | [@TheAuroraAI](https://github.com/TheAuroraAI) |
+| Airbnb Market Intelligence | `/airbnb/*` (4 endpoints) | $0.01–$0.05 | [@TheAuroraAI](https://github.com/TheAuroraAI) |
 
-## Open Bounties — $1,200+ in $SX Tokens
+All endpoints under `https://api.proxies.sx/v1/x402/`. Each returns HTTP 402 → pay USDC → retry with `Payment-Signature` header → get JSON.
 
-Build a service, earn $SX tokens. Full specs in each issue.
+## Bounty Pool — Paused (2026-04-28)
 
-| Bounty | Amount | Difficulty | Issue |
-|--------|--------|------------|-------|
-| Instagram Intelligence + AI Vision | $200 | Hard | [#71](https://github.com/bolivian-peru/marketplace-service-template/issues/71) |
-| X/Twitter Real-Time Search | $100 | Hard | [#73](https://github.com/bolivian-peru/marketplace-service-template/issues/73) |
-| LinkedIn People Enrichment | $100 | Hard | [#77](https://github.com/bolivian-peru/marketplace-service-template/issues/77) |
-| Trend Intelligence (Cross-Platform) | $100 | Hard | [#70](https://github.com/bolivian-peru/marketplace-service-template/issues/70) |
-| Prediction Market Aggregator | $100 | Hard | [#55](https://github.com/bolivian-peru/marketplace-service-template/issues/55) |
-| Amazon Product & BSR Tracker | $75 | Medium | [#72](https://github.com/bolivian-peru/marketplace-service-template/issues/72) |
-| Facebook Marketplace Monitor | $75 | Medium-Hard | [#75](https://github.com/bolivian-peru/marketplace-service-template/issues/75) |
-| Airbnb Market Intelligence | $75 | Medium-Hard | [#78](https://github.com/bolivian-peru/marketplace-service-template/issues/78) |
-| Real Estate Intelligence (Zillow) | $75 | Medium-Hard | [#79](https://github.com/bolivian-peru/marketplace-service-template/issues/79) |
-| TikTok Trend Intelligence | $75 | Hard | [#51](https://github.com/bolivian-peru/marketplace-service-template/issues/51) |
-| Google Discover Feed Intel | $75 | Hard | [#52](https://github.com/bolivian-peru/marketplace-service-template/issues/52) |
-| Reddit Intelligence | $50 | Easy-Medium | [#68](https://github.com/bolivian-peru/marketplace-service-template/issues/68) |
-| Google Reviews Extractor | $50 | Medium | [#74](https://github.com/bolivian-peru/marketplace-service-template/issues/74) |
-| Food Delivery Price Intel | $50 | Medium | [#76](https://github.com/bolivian-peru/marketplace-service-template/issues/76) |
-| App Store Intelligence | $50 | Medium | [#54](https://github.com/bolivian-peru/marketplace-service-template/issues/54) |
-| Ad Verification & Creative Intel | $50 | Medium | [#53](https://github.com/bolivian-peru/marketplace-service-template/issues/53) |
+The bounty pool is currently **paused** while we focus on growing revenue for the 9 services already live. The 6 PRs from `@elnexi461-spec` (#394–399) duplicating live services were closed.
 
-**Rules:**
-1. Must use Proxies.sx mobile proxies
-2. Must gate with x402 USDC payments
-3. Must deploy a live, working service
-4. Submit a PR with deployment URL + proof data
-5. $SX tokens paid after merge and verification
+The pool will reopen when any single live service crosses **$500/month in x402 revenue**.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full submission guide.
+If you want to ship a service in the meantime, we offer **rev-share contracts** (50% of all USDC the service earns, no upfront $SX bounty). Contact [agents@proxies.sx](mailto:agents@proxies.sx) or [@proxyforai](https://t.me/proxyforai).
+
+Existing live builders are welcome to ship updates and additional endpoints.
 
 ## Get Proxy Credentials
 
@@ -182,7 +167,7 @@ curl https://api.proxies.sx/v1/x402/proxy?country=US&traffic=1
 # Returns 402 → pay USDC → get credentials
 ```
 
-**Option C:** MCP Server (59 tools):
+**Option C:** MCP Server (55 tools — works in Claude Desktop, Cursor, Windsurf):
 ```bash
 npx -y @proxies-sx/mcp-server
 ```
