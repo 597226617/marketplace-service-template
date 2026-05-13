@@ -1,6 +1,6 @@
 /**
- * Domain Intelligence API — Server Entry Point
- * ─────────────────────────────────────────
+ * Domain Intelligence API — Cloudflare Workers Entry Point
+ * ──────────────────────────────────────────────────────
  * Mounts: /api/*
  * Endpoints: /api/whois, /api/dns, /api/reverse, /api/batch
  */
@@ -10,7 +10,19 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { serviceRouter } from './service';
 
-const app = new Hono();
+// ─── WORKERS ENV BINDINGS ────────────────────────────
+
+type Env = {
+  SERVICE_NAME?: string;
+  SERVICE_DESCRIPTION?: string;
+  WALLET_ADDRESS: string;
+  WALLET_ADDRESS_BASE?: string;
+  RATE_LIMIT?: string;
+  SOLANA_RPC_URL?: string;
+  BASE_RPC_URL?: string;
+};
+
+const app = new Hono<{ Bindings: Env }>();
 
 // ─── MIDDLEWARE ──────────────────────────────────────
 
@@ -30,12 +42,13 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'no-referrer');
 });
 
-// Rate limiting (in-memory, per IP, resets every minute)
+// Rate limiting (per-IP, resets every minute)
+// Note: In Workers this is per-isolate. For production, use a Durable Object or KV for global rate limiting.
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || '60');
 
 app.use('*', async (c, next) => {
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const rateLimitMax = parseInt(c.env.RATE_LIMIT || '60');
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const now = Date.now();
   const entry = rateLimits.get(ip);
 
@@ -43,7 +56,7 @@ app.use('*', async (c, next) => {
     rateLimits.set(ip, { count: 1, resetAt: now + 60_000 });
   } else {
     entry.count++;
-    if (entry.count > RATE_LIMIT) {
+    if (entry.count > rateLimitMax) {
       c.header('Retry-After', '60');
       return c.json({ error: 'Rate limit exceeded', retryAfter: 60 }, 429);
     }
@@ -52,19 +65,11 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Clean up rate limit map every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimits) {
-    if (now > entry.resetAt) rateLimits.delete(ip);
-  }
-}, 300_000);
-
 // ─── ROUTES ─────────────────────────────────────────
 
 app.get('/health', (c) => c.json({
   status: 'healthy',
-  service: process.env.SERVICE_NAME || 'domain-intelligence-api',
+  service: c.env.SERVICE_NAME || 'domain-intelligence-api',
   version: '1.0.0',
   timestamp: new Date().toISOString(),
   endpoints: [
@@ -76,8 +81,8 @@ app.get('/health', (c) => c.json({
 }));
 
 app.get('/', (c) => c.json({
-  name: process.env.SERVICE_NAME || 'domain-intelligence-api',
-  description: process.env.SERVICE_DESCRIPTION || 'Domain Intelligence API: WHOIS lookup, DNS record queries, reverse IP lookup, and batch WHOIS. Powered by real mobile proxies via Proxies.sx.',
+  name: c.env.SERVICE_NAME || 'domain-intelligence-api',
+  description: c.env.SERVICE_DESCRIPTION || 'Domain Intelligence API: WHOIS lookup, DNS record queries, reverse IP lookup, and batch WHOIS. Powered by Cloudflare Workers edge network.',
   version: '1.0.0',
   endpoints: [
     { method: 'GET', path: '/api/whois', description: 'Full WHOIS lookup: registrar, dates, nameservers, status, registrant info', price: '0.005 USDC' },
@@ -86,13 +91,13 @@ app.get('/', (c) => c.json({
     { method: 'GET', path: '/api/batch', description: 'Batch WHOIS lookup for up to 10 domains', price: '0.02 USDC' },
   ],
   pricing: {
-    amount: process.env.PRICE_USDC || '0.005',
+    amount: '0.005',
     currency: 'USDC',
     networks: [
       {
         network: 'solana',
         chainId: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
-        recipient: '6eUdVwsPArTxwVqEARYGCh4S2qwW2zCs7jSEDRpxydnv',
+        recipient: c.env.WALLET_ADDRESS,
         asset: 'USDC',
         assetAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
         settlementTime: '~400ms',
@@ -100,17 +105,15 @@ app.get('/', (c) => c.json({
       {
         network: 'base',
         chainId: 'eip155:8453',
-        recipient: process.env.WALLET_ADDRESS_BASE || '0xF8cD900794245fc36CBE65be9afc23CDF5103042',
+        recipient: c.env.WALLET_ADDRESS_BASE || c.env.WALLET_ADDRESS,
         asset: 'USDC',
         assetAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         settlementTime: '~2s',
       },
     ],
   },
-  infrastructure: 'Proxies.sx mobile proxies (real 4G/5G IPs)',
+  infrastructure: 'Cloudflare Workers edge network',
   links: {
-    marketplace: 'https://agents.proxies.sx/marketplace/',
-    skillFile: 'https://agents.proxies.sx/marketplace/skill.md',
     github: 'https://github.com/597226617/marketplace-service-template',
   },
 }));
@@ -127,8 +130,5 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
-export default {
-  port: parseInt(process.env.PORT || '3000'),
-  hostname: '0.0.0.0',
-  fetch: app.fetch,
-};
+// Workers export
+export default app;

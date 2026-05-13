@@ -1,27 +1,33 @@
 /**
  * Domain Intelligence API — WHOIS, DNS, and Domain Metadata
- *
+ * ──────────────────────────────────────────────────────
  * Endpoints:
  *   GET /api/whois       — Full WHOIS lookup for any domain
  *   GET /api/dns         — DNS record lookup (A, MX, NS, TXT, CNAME, SOA)
  *   GET /api/reverse      — Reverse IP lookup (domains sharing same IP)
  *   GET /api/batch        — Batch WHOIS for up to 10 domains
- *
- * Useful for: cybersecurity research, lead generation, competitive analysis,
- * domain valuation, brand monitoring.
  */
 
 import { Hono } from 'hono';
-import { proxyFetch, getProxy } from './proxy';
 import { extractPayment, verifyPayment, build402Response } from './payment';
 
-export const serviceRouter = new Hono();
+// ─── RE-EXPORT ENV TYPE FOR SERVICE ROUTER ──────────
+type Env = {
+  SERVICE_NAME?: string;
+  WALLET_ADDRESS: string;
+  WALLET_ADDRESS_BASE?: string;
+  RATE_LIMIT?: string;
+  SOLANA_RPC_URL?: string;
+  BASE_RPC_URL?: string;
+};
+
+export const serviceRouter = new Hono<{ Bindings: Env }>();
 
 // ─── CONFIG ─────────────────────────────────────────
 
 const WHOIS_PRICE_USDC = 0.005;
 const WHOIS_DESCRIPTION =
-  'Domain WHOIS lookup: registrar, dates, nameservers, status codes, registrant (when available). Real mobile IPs to bypass rate limits.';
+  'Domain WHOIS lookup: registrar, dates, nameservers, status codes, registrant (when available). Runs on Cloudflare edge network.';
 
 const DNS_PRICE_USDC = 0.003;
 const DNS_DESCRIPTION =
@@ -29,16 +35,16 @@ const DNS_DESCRIPTION =
 
 const REVERSE_PRICE_USDC = 0.005;
 const REVERSE_DESCRIPTION =
-  'Reverse IP lookup: discover all domains hosted on the same IP address. Useful for shared hosting detection and attack surface mapping.';
+  'Reverse IP lookup: discover all domains hosted on the same IP address.';
 
 const BATCH_PRICE_USDC = 0.02;
 const BATCH_DESCRIPTION =
-  'Batch WHOIS lookup for up to 10 domains at once. Returns array of WHOIS records with per-domain status.';
+  'Batch WHOIS lookup for up to 10 domains at once.';
 
-// ─── PROXY RATE LIMIT (separate from server rate limit) ───
+// ─── RATE LIMIT ─────────────────────────────────────
 
 const proxyRateLimits = new Map<string, { count: number; resetAt: number }>();
-const PROXY_RATE_LIMIT = 20; // per minute
+const PROXY_RATE_LIMIT = 20;
 
 function checkProxyRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -54,18 +60,14 @@ function checkProxyRateLimit(ip: string): boolean {
 // ─── HELPERS ────────────────────────────────────────
 
 const MAX_DOMAIN_LENGTH = 253;
-const MAX_LIMIT = 50;
 const MAX_BATCH_SIZE = 10;
 const MAX_TEXT_LENGTH = 10000;
-const MAX_RESPONSE_BYTES = 2_000_000;
 
 function sanitizeDomain(raw: string): string | null {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed || trimmed.length > MAX_DOMAIN_LENGTH) return null;
-  // Strip protocol and path
   const cleaned = trimmed.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '');
-  // Basic domain validation
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(cleaned)) {
     return null;
   }
@@ -75,11 +77,6 @@ function sanitizeDomain(raw: string): string | null {
 function sanitizeText(value: unknown, maxLen: number): string {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(Math.max(Math.floor(value), min), max);
 }
 
 const VALID_DNS_TYPES = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA', 'CAA'] as const;
@@ -92,27 +89,11 @@ function isValidDnsType(type: string): type is DnsRecordType {
 function sanitizeIp(raw: string): string | null {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
-  // IPv4
   if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) {
     const parts = trimmed.split('.').map(Number);
     if (parts.every(p => p >= 0 && p <= 255)) return trimmed;
   }
   return null;
-}
-
-async function readBodyWithLimit(response: Response, maxBytes: number): Promise<string> {
-  const contentLengthHeader = response.headers.get('content-length');
-  if (contentLengthHeader) {
-    const contentLength = Number(contentLengthHeader);
-    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-      throw new Error(`Upstream payload too large: ${contentLength} bytes`);
-    }
-  }
-  const body = await response.arrayBuffer();
-  if (body.byteLength > maxBytes) {
-    throw new Error(`Upstream payload too large: ${body.byteLength} bytes`);
-  }
-  return new TextDecoder().decode(body);
 }
 
 // ─── WHOIS PARSER ───────────────────────────────────
@@ -159,7 +140,6 @@ function parseWhoisRaw(text: string, domain: string): WhoisRecord {
 
     const key = trimmed.slice(0, colonIdx).trim().toLowerCase();
     const value = trimmed.slice(colonIdx + 1).trim();
-
     if (!value) continue;
 
     if (key.includes('registrar') && key !== 'registrar abuse contact email' && key !== 'registrar abuse contact phone' && !key.includes('url') && !key.includes('whois') && key !== 'registrar id' && key !== 'registrar iana id') {
@@ -186,7 +166,6 @@ function parseWhoisRaw(text: string, domain: string): WhoisRecord {
     }
 
     if (key === 'status' || key === 'domain status' || key === 'statuses') {
-      // Handle comma-separated status values
       const statuses = value.split(/[,\s]+/).filter(Boolean);
       for (const s of statuses) {
         const clean = s.replace(/["']/g, '').trim();
@@ -212,7 +191,6 @@ function parseWhoisRaw(text: string, domain: string): WhoisRecord {
     }
   }
 
-  // Extract email from raw text as fallback
   if (!record.registrant.email) {
     const emailMatch = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
     if (emailMatch) {
@@ -229,8 +207,31 @@ function parseWhoisRaw(text: string, domain: string): WhoisRecord {
   return record;
 }
 
+// ─── UPSTREAM FETCH (direct, no proxy on Workers) ──
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return resp;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readBodyWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const body = await response.arrayBuffer();
+  if (body.byteLength > maxBytes) {
+    throw new Error(`Upstream payload too large: ${body.byteLength} bytes`);
+  }
+  return new TextDecoder().decode(body);
+}
+
 async function fetchWhoisFromApi(domain: string): Promise<string> {
-  // Try whoisjson.com API first (free, no auth needed)
   const urls = [
     `https://whoisjson.com/api/v1/whois?domain=${encodeURIComponent(domain)}`,
     `https://whois-api.whoisxmlapi.com/api/v1?domainName=${encodeURIComponent(domain)}&outputFormat=JSON`,
@@ -238,18 +239,14 @@ async function fetchWhoisFromApi(domain: string): Promise<string> {
 
   for (const url of urls) {
     try {
-      const resp = await proxyFetch(url, {
+      const resp = await fetchWithTimeout(url, {
         headers: { Accept: 'application/json' },
-        timeoutMs: 15_000,
-        maxRetries: 1,
-      });
+      }, 15_000);
       if (resp.ok) {
         const json: any = await resp.json();
-        // Try to get raw text or reconstruct from JSON
         if (json.rawText || json.raw_text) {
           return json.rawText || json.raw_text;
         }
-        // Reconstruct text from JSON fields
         return jsonToWhoisText(json);
       }
     } catch {
@@ -298,7 +295,6 @@ interface DnsRecord {
 }
 
 async function fetchDnsRecords(domain: string, recordType: DnsRecordType): Promise<DnsRecord[]> {
-  // Use DNS-over-HTTPS via Google and Cloudflare
   const dohUrls = [
     `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=${recordType}`,
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=${recordType}`,
@@ -306,16 +302,13 @@ async function fetchDnsRecords(domain: string, recordType: DnsRecordType): Promi
 
   for (const url of dohUrls) {
     try {
-      const resp = await proxyFetch(url, {
+      const resp = await fetchWithTimeout(url, {
         headers: { Accept: 'application/dns-json' },
-        timeoutMs: 10_000,
-        maxRetries: 1,
-      });
+      }, 10_000);
 
       if (!resp.ok) continue;
 
       const json: any = await resp.json();
-
       if (json.Status !== 0) continue;
 
       const answers: DnsRecord[] = (json.Answer || []).map((a: any) => ({
@@ -343,7 +336,6 @@ interface ReverseIpResult {
 }
 
 async function fetchReverseIp(ip: string): Promise<ReverseIpResult> {
-  // Try multiple free reverse IP APIs
   const apis = [
     { url: `https://api.hackertarget.com/reverseiplookup/?q=${encodeURIComponent(ip)}`, parse: parseHackerTarget },
     { url: `https://rapiddns.io/sameip/${encodeURIComponent(ip)}?full=1`, parse: parseRapidDns },
@@ -351,11 +343,9 @@ async function fetchReverseIp(ip: string): Promise<ReverseIpResult> {
 
   for (const api of apis) {
     try {
-      const resp = await proxyFetch(api.url, {
+      const resp = await fetchWithTimeout(api.url, {
         headers: { Accept: 'text/html,text/plain' },
-        timeoutMs: 15_000,
-        maxRetries: 1,
-      });
+      }, 15_000);
 
       if (!resp.ok) continue;
 
@@ -394,15 +384,15 @@ function parseRapidDns(text: string, ip: string): ReverseIpResult {
 
 // GET /api/whois?domain=example.com
 serviceRouter.get('/whois', async (c) => {
-  const walletAddress = process.env.WALLET_ADDRESS;
-  if (!walletAddress) {
-    return c.json({ error: 'Service misconfigured: WALLET_ADDRESS not set' }, 500);
-  }
+  const walletAddress = c.env.WALLET_ADDRESS;
+  const walletBase = c.env.WALLET_ADDRESS_BASE || walletAddress;
+  const solanaRpc = c.env.SOLANA_RPC_URL;
+  const baseRpc = c.env.BASE_RPC_URL;
 
   const payment = extractPayment(c);
   if (!payment) {
     return c.json(
-      build402Response('/api/whois', WHOIS_DESCRIPTION, WHOIS_PRICE_USDC, walletAddress, {
+      build402Response('/api/whois', WHOIS_DESCRIPTION, WHOIS_PRICE_USDC, walletAddress, walletBase, {
         input: { domain: 'string — Domain name (required)' },
         output: {
           domain: 'string',
@@ -414,7 +404,6 @@ serviceRouter.get('/whois', async (c) => {
           registrant: '{ name, organization, email, country }',
           dnssec: 'boolean | null',
           rawText: 'string',
-          proxy: '{ country, type }',
           payment: '{ txHash, network, amount, settled }',
         },
       }),
@@ -422,7 +411,7 @@ serviceRouter.get('/whois', async (c) => {
     );
   }
 
-  const verification = await verifyPayment(payment, walletAddress, WHOIS_PRICE_USDC);
+  const verification = await verifyPayment(payment, walletAddress, WHOIS_PRICE_USDC, solanaRpc, baseRpc);
   if (!verification.valid) {
     return c.json({
       error: 'Payment verification failed',
@@ -431,10 +420,10 @@ serviceRouter.get('/whois', async (c) => {
     }, 402);
   }
 
-  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!checkProxyRateLimit(clientIp)) {
     c.header('Retry-After', '60');
-    return c.json({ error: 'Proxy rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
+    return c.json({ error: 'Rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
   }
 
   const rawDomain = c.req.query('domain');
@@ -450,14 +439,12 @@ serviceRouter.get('/whois', async (c) => {
   try {
     const whoisText = await fetchWhoisFromApi(domain);
     const record = parseWhoisRaw(whoisText, domain);
-    const proxy = getProxy();
 
     c.header('X-Payment-Settled', 'true');
     c.header('X-Payment-TxHash', payment.txHash);
 
     return c.json({
       data: record,
-      proxy: { country: proxy.country, type: 'mobile' },
       payment: {
         txHash: payment.txHash,
         network: payment.network,
@@ -472,15 +459,15 @@ serviceRouter.get('/whois', async (c) => {
 
 // GET /api/dns?domain=example.com&type=A
 serviceRouter.get('/dns', async (c) => {
-  const walletAddress = process.env.WALLET_ADDRESS;
-  if (!walletAddress) {
-    return c.json({ error: 'Service misconfigured: WALLET_ADDRESS not set' }, 500);
-  }
+  const walletAddress = c.env.WALLET_ADDRESS;
+  const walletBase = c.env.WALLET_ADDRESS_BASE || walletAddress;
+  const solanaRpc = c.env.SOLANA_RPC_URL;
+  const baseRpc = c.env.BASE_RPC_URL;
 
   const payment = extractPayment(c);
   if (!payment) {
     return c.json(
-      build402Response('/api/dns', DNS_DESCRIPTION, DNS_PRICE_USDC, walletAddress, {
+      build402Response('/api/dns', DNS_DESCRIPTION, DNS_PRICE_USDC, walletAddress, walletBase, {
         input: {
           domain: 'string — Domain name (required)',
           type: 'string — DNS record type: A, AAAA, MX, NS, TXT, CNAME, SOA, CAA (default: A)',
@@ -489,7 +476,6 @@ serviceRouter.get('/dns', async (c) => {
           domain: 'string',
           type: 'string',
           records: '[{ type, name, value, ttl }]',
-          proxy: '{ country, type }',
           payment: '{ txHash, network, amount, settled }',
         },
       }),
@@ -497,7 +483,7 @@ serviceRouter.get('/dns', async (c) => {
     );
   }
 
-  const verification = await verifyPayment(payment, walletAddress, DNS_PRICE_USDC);
+  const verification = await verifyPayment(payment, walletAddress, DNS_PRICE_USDC, solanaRpc, baseRpc);
   if (!verification.valid) {
     return c.json({
       error: 'Payment verification failed',
@@ -505,10 +491,10 @@ serviceRouter.get('/dns', async (c) => {
     }, 402);
   }
 
-  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!checkProxyRateLimit(clientIp)) {
     c.header('Retry-After', '60');
-    return c.json({ error: 'Proxy rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
+    return c.json({ error: 'Rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
   }
 
   const rawDomain = c.req.query('domain');
@@ -528,14 +514,12 @@ serviceRouter.get('/dns', async (c) => {
 
   try {
     const records = await fetchDnsRecords(domain, typeParam);
-    const proxy = getProxy();
 
     c.header('X-Payment-Settled', 'true');
     c.header('X-Payment-TxHash', payment.txHash);
 
     return c.json({
       data: { domain, type: typeParam, records },
-      proxy: { country: proxy.country, type: 'mobile' },
       payment: {
         txHash: payment.txHash,
         network: payment.network,
@@ -550,21 +534,20 @@ serviceRouter.get('/dns', async (c) => {
 
 // GET /api/reverse?ip=1.2.3.4
 serviceRouter.get('/reverse', async (c) => {
-  const walletAddress = process.env.WALLET_ADDRESS;
-  if (!walletAddress) {
-    return c.json({ error: 'Service misconfigured: WALLET_ADDRESS not set' }, 500);
-  }
+  const walletAddress = c.env.WALLET_ADDRESS;
+  const walletBase = c.env.WALLET_ADDRESS_BASE || walletAddress;
+  const solanaRpc = c.env.SOLANA_RPC_URL;
+  const baseRpc = c.env.BASE_RPC_URL;
 
   const payment = extractPayment(c);
   if (!payment) {
     return c.json(
-      build402Response('/api/reverse', REVERSE_DESCRIPTION, REVERSE_PRICE_USDC, walletAddress, {
+      build402Response('/api/reverse', REVERSE_DESCRIPTION, REVERSE_PRICE_USDC, walletAddress, walletBase, {
         input: { ip: 'string — IPv4 address (required)' },
         output: {
           ip: 'string',
           domains: 'string[]',
           totalCount: 'number',
-          proxy: '{ country, type }',
           payment: '{ txHash, network, amount, settled }',
         },
       }),
@@ -572,7 +555,7 @@ serviceRouter.get('/reverse', async (c) => {
     );
   }
 
-  const verification = await verifyPayment(payment, walletAddress, REVERSE_PRICE_USDC);
+  const verification = await verifyPayment(payment, walletAddress, REVERSE_PRICE_USDC, solanaRpc, baseRpc);
   if (!verification.valid) {
     return c.json({
       error: 'Payment verification failed',
@@ -580,10 +563,10 @@ serviceRouter.get('/reverse', async (c) => {
     }, 402);
   }
 
-  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!checkProxyRateLimit(clientIp)) {
     c.header('Retry-After', '60');
-    return c.json({ error: 'Proxy rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
+    return c.json({ error: 'Rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
   }
 
   const rawIp = c.req.query('ip');
@@ -598,14 +581,12 @@ serviceRouter.get('/reverse', async (c) => {
 
   try {
     const result = await fetchReverseIp(ip);
-    const proxy = getProxy();
 
     c.header('X-Payment-Settled', 'true');
     c.header('X-Payment-TxHash', payment.txHash);
 
     return c.json({
       data: result,
-      proxy: { country: proxy.country, type: 'mobile' },
       payment: {
         txHash: payment.txHash,
         network: payment.network,
@@ -620,21 +601,20 @@ serviceRouter.get('/reverse', async (c) => {
 
 // GET /api/batch?domains=example.com,google.com,github.com
 serviceRouter.get('/batch', async (c) => {
-  const walletAddress = process.env.WALLET_ADDRESS;
-  if (!walletAddress) {
-    return c.json({ error: 'Service misconfigured: WALLET_ADDRESS not set' }, 500);
-  }
+  const walletAddress = c.env.WALLET_ADDRESS;
+  const walletBase = c.env.WALLET_ADDRESS_BASE || walletAddress;
+  const solanaRpc = c.env.SOLANA_RPC_URL;
+  const baseRpc = c.env.BASE_RPC_URL;
 
   const payment = extractPayment(c);
   if (!payment) {
     return c.json(
-      build402Response('/api/batch', BATCH_DESCRIPTION, BATCH_PRICE_USDC, walletAddress, {
+      build402Response('/api/batch', BATCH_DESCRIPTION, BATCH_PRICE_USDC, walletAddress, walletBase, {
         input: { domains: 'string — Comma-separated domain list (required, max 10)' },
         output: {
           results: '[{ domain, registrar, creationDate, expirationDate, nameServers, status, registrant, dnssec, error? }]',
           totalQueried: 'number',
           successful: 'number',
-          proxy: '{ country, type }',
           payment: '{ txHash, network, amount, settled }',
         },
       }),
@@ -642,7 +622,7 @@ serviceRouter.get('/batch', async (c) => {
     );
   }
 
-  const verification = await verifyPayment(payment, walletAddress, BATCH_PRICE_USDC);
+  const verification = await verifyPayment(payment, walletAddress, BATCH_PRICE_USDC, solanaRpc, baseRpc);
   if (!verification.valid) {
     return c.json({
       error: 'Payment verification failed',
@@ -650,10 +630,10 @@ serviceRouter.get('/batch', async (c) => {
     }, 402);
   }
 
-  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!checkProxyRateLimit(clientIp)) {
     c.header('Retry-After', '60');
-    return c.json({ error: 'Proxy rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
+    return c.json({ error: 'Rate limit exceeded. Max 20 requests/min.', retryAfter: 60 }, 429);
   }
 
   const rawDomains = c.req.query('domains');
@@ -677,7 +657,6 @@ serviceRouter.get('/batch', async (c) => {
       })
     );
 
-    const proxy = getProxy();
     const mapped = results.map((r, i) => {
       if (r.status === 'fulfilled') return r.value;
       return { domain: domainList[i], error: r.reason?.message || 'Lookup failed' };
@@ -692,7 +671,6 @@ serviceRouter.get('/batch', async (c) => {
         totalQueried: domainList.length,
         successful: results.filter(r => r.status === 'fulfilled').length,
       },
-      proxy: { country: proxy.country, type: 'mobile' },
       payment: {
         txHash: payment.txHash,
         network: payment.network,

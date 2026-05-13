@@ -1,0 +1,11 @@
+name = "domain-intelligence-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+SERVICE_NAME = "domain-intelligence-api"
+SERVICE_DESCRIPTION = "Domain Intelligence API: WHOIS lookup, DNS record queries, reverse IP lookup, and batch WHOIS. Powered by Cloudflare Workers edge network."
+WALLET_ADDRESS = "14XeLRYzRwyzwXGMDCdjoQmnUQHy5HdEfg6XwbpV7opp"
+WALLET_ADDRESS_BASE = "0x81Fa0f6d1042D6BB90b38e5dFF3731E721cDF9Bc"
+RATE_LIMIT = "60"

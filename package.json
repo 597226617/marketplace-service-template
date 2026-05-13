@@ -1,31 +1,29 @@
 {
   "name": "domain-intelligence-api",
   "version": "1.0.0",
-  "description": "x402-gated Domain Intelligence API: WHOIS, DNS, reverse IP, and batch lookups. Deploy and earn USDC passively.",
+  "description": "x402-gated Domain Intelligence API: WHOIS, DNS, reverse IP, and batch lookups. Deploy on Cloudflare Workers and earn USDC passively.",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "start": "bun run src/index.ts",
-    "test": "bun test",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "hono": "^4.6.0"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.0.0"
+    "@cloudflare/workers-types": "^4.20240529.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^4.0.0"
   },
   "keywords": [
     "x402",
     "whois",
     "dns",
     "domain-intelligence",
-    "proxy",
     "marketplace",
     "usdc",
     "hono",
-    "bun",
-    "mobile-proxy",
+    "cloudflare-workers",
     "ai-agents"
   ],
   "license": "MIT",
