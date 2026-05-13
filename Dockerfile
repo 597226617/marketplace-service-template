@@ -8,7 +8,6 @@ RUN bun install --frozen-lockfile --production
 FROM oven/bun:1-alpine
 WORKDIR /app
 
-# Don't run as root
 RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /app/node_modules ./node_modules

@@ -1,13 +1,12 @@
 {
-  "name": "marketplace-service-template",
+  "name": "domain-intelligence-api",
   "version": "1.0.0",
-  "description": "Fork → edit one file → deploy → earn USDC. Build x402-gated services on Proxies.sx mobile proxy infrastructure.",
+  "description": "x402-gated Domain Intelligence API: WHOIS, DNS, reverse IP, and batch lookups. Deploy and earn USDC passively.",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "proof:indeed": "bun run scripts/proof-indeed.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "hono": "^4.6.0"
@@ -18,6 +17,9 @@
   },
   "keywords": [
     "x402",
+    "whois",
+    "dns",
+    "domain-intelligence",
     "proxy",
     "marketplace",
     "usdc",
@@ -29,6 +31,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bolivian-peru/marketplace-service-template"
+    "url": "https://github.com/597226617/marketplace-service-template"
   }
 }
