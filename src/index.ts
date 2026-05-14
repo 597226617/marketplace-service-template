@@ -65,6 +65,30 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// ─── X402 SERVICE DISCOVERY (/.well-known/x402-info) ──
+app.get('/.well-known/x402-info', (c) => c.json({
+  name: c.env.SERVICE_NAME || 'domain-intelligence-api',
+  description: 'Domain Intelligence API: WHOIS lookup, DNS record queries, reverse IP lookup, and batch WHOIS. Pay-per-call via x402 micro-payments.',
+  version: '1.0.0',
+  pricing: {
+    currency: 'USDC',
+    defaultPrice: 3000,
+    endpoints: [
+      { path: '/api/whois', method: 'GET', price: 5000, description: 'Full WHOIS lookup: registrar, dates, nameservers, status, registrant info' },
+      { path: '/api/dns', method: 'GET', price: 3000, description: 'DNS record lookup (A, AAAA, MX, NS, TXT, CNAME, SOA, CAA)' },
+      { path: '/api/reverse', method: 'GET', price: 5000, description: 'Reverse IP lookup — find all domains on the same IP' },
+      { path: '/api/batch', method: 'GET', price: 20000, description: 'Batch WHOIS lookup for up to 10 domains' },
+    ],
+    freeEndpoints: ['/', '/health', '/.well-known/x402-info'],
+  },
+  capabilities: ['search', 'analyze', 'retrieve'],
+  infrastructure: 'Cloudflare Workers edge network',
+  links: {
+    github: 'https://github.com/597226617/marketplace-service-template',
+    x402: 'https://x402.org',
+  },
+}));
+
 // ─── ROUTES ─────────────────────────────────────────
 
 app.get('/health', (c) => c.json({

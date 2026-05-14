@@ -96,6 +96,7 @@ export async function verifyPayment(
 
 /**
  * Build a standard 402 response for AI agents.
+ * Includes x402 Bazaar extension for automatic service discovery.
  */
 export function build402Response(
   resource: string,
@@ -103,8 +104,9 @@ export function build402Response(
   priceUSDC: number,
   walletAddress: string,
   walletAddressBase: string,
-  outputSchema?: Record<string, any>,
+  schema?: { input?: Record<string, any>; output?: Record<string, any> },
 ) {
+  const amountAtomic = String(Math.round(priceUSDC * 1e6));
   return {
     status: 402,
     message: 'Payment required',
@@ -122,6 +124,8 @@ export function build402Response(
         recipient: walletAddress,
         asset: 'USDC',
         assetAddress: USDC_SOLANA,
+        amount: amountAtomic,
+        scheme: 'exact',
       },
       {
         network: 'base',
@@ -129,6 +133,8 @@ export function build402Response(
         recipient: walletAddressBase,
         asset: 'USDC',
         assetAddress: USDC_BASE,
+        amount: amountAtomic,
+        scheme: 'exact',
       },
     ],
     headers: {
@@ -136,7 +142,16 @@ export function build402Response(
       optional: ['X-Payment-Network'],
       format: 'Payment-Signature: <transaction_hash>',
     },
-    ...(outputSchema ? { outputSchema } : {}),
+    ...(schema ? { outputSchema: schema } : {}),
+    // x402 Bazaar extension for service discovery
+    extensions: {
+      bazaar: {
+        info: {
+          input: schema?.input || { description: `See API documentation for ${resource}` },
+          output: schema?.output || { description: `See API documentation for ${resource}` },
+        },
+      },
+    },
   };
 }
 
